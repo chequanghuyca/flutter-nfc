@@ -7,18 +7,18 @@ void main() {
 
   test('accepts a 9-digit Vietnamese MRZ document number', () {
     final data = DocumentAccessData(
-      documentNumber: '025203000',
+      documentNumber: '000000000',
       dateOfBirth: DateTime(2003, 2, 1),
       dateOfExpiry: DateTime(2031, 2, 1),
     );
 
     expect(profile.validate(data), isNull);
-    expect(profile.accessDocumentNumbers(data), ['025203000']);
+    expect(profile.accessDocumentNumbers(data), ['000000000']);
   });
 
   test('rejects the 12-digit personal identity number as BAC input', () {
     final data = DocumentAccessData(
-      documentNumber: '079203012345',
+      documentNumber: '000000000000',
       dateOfBirth: DateTime(2003, 2, 1),
       dateOfExpiry: DateTime(2031, 2, 1),
     );

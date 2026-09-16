@@ -7,75 +7,75 @@ void main() {
   test('extracts the 12-digit identity number from front OCR text', () {
     const text = '''
 CĂN CƯỚC CÔNG DÂN
-Số / No: 079 203 012 345
-NGUYỄN VĂN AN
+Số / No: 000 000 000 000
+NGƯỜI DÙNG THỬ
 ''';
 
-    expect(parser.extractFrontIdentityNumber(text), '079203012345');
+    expect(parser.extractFrontIdentityNumber(text), '000000000000');
   });
 
   test('parses BAC fields from Vietnamese CCCD MRZ', () {
     const text = '''
-IDVNM025203000<079203012345<<<<<<<<
+IDVNM000000000<000000000000<<<<<<<<
 0302011M3102012VNM<<<<<<<<<<<<<<<<<<<
-NGUYEN<<VAN<AN<<<<<<<<<<<<<<<<<<<<<<<
+TEST<<USER<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 ''';
 
     final result = parser.parseBack(text);
 
     expect(result, isNotNull);
-    expect(result!.identityNumber, '079203012345');
-    expect(result.accessData.documentNumber, '025203000');
+    expect(result!.identityNumber, '000000000000');
+    expect(result.accessData.documentNumber, '000000000');
     expect(result.accessData.dateOfBirth, DateTime(2003, 2, 1));
     expect(result.accessData.dateOfExpiry, DateTime(2031, 2, 1));
   });
 
   test('normalizes common OCR mistakes in numeric MRZ fields', () {
     const text = '''
-IDVNM0252O3OOO<0792O3O12345<<<<<<<<
+IDVNMOOOOOOOOO<OOOOOOOOOOOO<<<<<<<<
 O3O2O11M31O2O12VNM<<<<<<<<<<<<<<<<<<<
 ''';
 
     final result = parser.parseBack(text);
 
     expect(result, isNotNull);
-    expect(result!.identityNumber, '079203012345');
-    expect(result.accessData.documentNumber, '025203000');
+    expect(result!.identityNumber, '000000000000');
+    expect(result.accessData.documentNumber, '000000000');
   });
 
   test('skips the document check digit before the identity number', () {
     const text = '''
-IDVNM0990079121087099007912KK2
+IDVNM1111111111222222222222KK2
 0302011M3102012VNM<<<<<<<<<<<<<<<<<<<
-NGUYEN<<VAN<AN<<<<<<<<<<<<<<<<<<<<<<<
+TEST<<USER<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 ''';
 
     final result = parser.parseBack(text);
 
     expect(result, isNotNull);
-    expect(result!.accessData.documentNumber, '099007912');
-    expect(result.identityNumber, '087099007912');
+    expect(result!.accessData.documentNumber, '111111111');
+    expect(result.identityNumber, '222222222222');
   });
 
   test('recovers a split MRZ line and common marker OCR mistakes', () {
     const text = '''
-1DVNM0990079121
-O87099007912KK2
-99O9O92M39O9O9OVNMKKKKKKKKKK6
-CHE<<QUANG<HUY<<<<<<<<<<<<<<<
+1DVNM1111111111
+222222222222KK2
+OOO1O12M4OO1O1OVNMKKKKKKKKKK6
+TEST<<USER<<<<<<<<<<<<<<<<<<<<
 ''';
 
     final result = parser.parseBack(text);
 
     expect(result, isNotNull);
-    expect(result!.accessData.documentNumber, '099007912');
-    expect(result.identityNumber, '087099007912');
-    expect(result.accessData.dateOfBirth, DateTime(1999, 9, 9));
-    expect(result.accessData.dateOfExpiry, DateTime(2039, 9, 9));
+    expect(result!.accessData.documentNumber, '111111111');
+    expect(result.identityNumber, '222222222222');
+    expect(result.accessData.dateOfBirth, DateTime(2000, 1, 1));
+    expect(result.accessData.dateOfExpiry, DateTime(2040, 1, 1));
   });
 
   test('rejects incomplete OCR text', () {
-    expect(parser.parseBack('IDVNM025203000'), isNull);
+    expect(parser.parseBack('IDVNM000000000'), isNull);
     expect(parser.extractFrontIdentityNumber('không có số giấy tờ'), isNull);
   });
 }

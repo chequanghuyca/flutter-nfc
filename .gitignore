@@ -10,6 +10,7 @@
 .history
 .svn/
 .swiftpm/
+.planning/
 migrate_working_dir/
 
 # IntelliJ related
@@ -32,6 +33,51 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+
+# Generated build outputs
+/build_testflight_*/
+/dist/
+*.apk
+*.aab
+*.ipa
+*.dSYM/
+
+# Nested native build caches
+**/.cxx/
+**/.gradle/
+**/android/build/
+
+# Local Luxand FaceSDK licenses. Build with
+# --dart-define-from-file=.luxand.env.json
+.luxand.env*.json
+!.luxand.env.example.json
+
+# Local environment files
+.env
+.env.*
+!.env.example
+!.env.example.*
+
+# Signing credentials and per-user IDE state
+android/key.properties
+*.jks
+*.keystore
+*.p8
+*.p12
+*.pem
+*.mobileprovision
+**/xcuserdata/
+*.xcuserstate
+
+# Local captures and test data may contain identity documents or biometrics
+/captures/
+/screenshots/
+/test_artifacts/
+
+# Luxand native SDK is proprietary and must be provisioned locally
+/packages/flutter_face_sdk/android/src/main/jniLibs/
+/packages/flutter_face_sdk/ios/Frameworks/
+/packages/flutter_face_sdk/third_party/luxand/license.txt
 
 # Symbolication related
 app.*.symbols

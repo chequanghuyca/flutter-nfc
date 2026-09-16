@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dmrtd/dmrtd.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_nfc_kit/flutter_nfc_kit.dart';
 
 import '../domain/document_access_data.dart';
@@ -140,9 +141,23 @@ class MrtdNfcDocumentReader implements NfcDocumentReader {
       if (com.dgTags.contains(EfDG2.TAG)) {
         onProgress('Đang đọc ảnh chân dung (DG2)', 0.7);
         try {
-          dg2 = await passport.readEfDG2();
+          await provider.setIosAlertMessage(
+            'Đang đọc ảnh chân dung. Tiếp tục giữ CCCD sát iPhone.',
+          );
         } catch (_) {
-          // Identity data remains useful if the optional portrait cannot be read.
+          // Updating the iOS prompt must not abort an active chip session.
+        }
+        for (var attempt = 1; attempt <= 2 && dg2 == null; attempt++) {
+          try {
+            dg2 = await passport.readEfDG2();
+          } catch (error) {
+            debugPrint(
+              'DG2 read attempt $attempt failed: ${error.runtimeType}',
+            );
+            if (attempt == 1 && provider.isConnected()) {
+              onProgress('Đang thử đọc lại ảnh chân dung (DG2)', 0.74);
+            }
+          }
         }
       }
       _throwIfCancelled();

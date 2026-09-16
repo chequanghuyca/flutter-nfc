@@ -2,12 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../data/nfc_document_reader.dart';
+import '../data/nfc_portrait_decoder.dart';
 import '../domain/document_access_data.dart';
 import '../domain/document_profile.dart';
 import '../domain/document_read_result.dart';
+import '../domain/face_verification_result.dart';
 import '../domain/identity_capture_result.dart';
+import '../domain/luxand_verification_config.dart';
 import '../domain/vietnamese_cccd_profile.dart';
 import 'identity_capture_screen.dart';
+import 'luxand_face_verification_screen.dart';
 import 'nfc_read_controller.dart';
 
 class NfcHomeScreen extends StatefulWidget {
@@ -32,6 +36,9 @@ class _NfcHomeScreenState extends State<NfcHomeScreen> {
   DateTime? _dateOfExpiry;
   String? _dateError;
   IdentityCaptureResult? _captureResult;
+  FaceVerificationResult? _faceVerificationResult;
+  String? _faceVerificationError;
+  bool _isOpeningFaceVerification = false;
 
   @override
   void initState() {
@@ -93,6 +100,11 @@ class _NfcHomeScreenState extends State<NfcHomeScreen> {
       return;
     }
 
+    setState(() {
+      _faceVerificationResult = null;
+      _faceVerificationError = null;
+    });
+
     await _controller.start(
       DocumentAccessData(
         documentNumber: _documentNumberController.text.trim(),
@@ -100,6 +112,49 @@ class _NfcHomeScreenState extends State<NfcHomeScreen> {
         dateOfExpiry: _dateOfExpiry!,
       ),
     );
+    if (!mounted) return;
+    final result = _controller.state.result;
+    if (result != null) await _verifyFace(result);
+  }
+
+  Future<void> _verifyFace(DocumentReadResult nfcResult) async {
+    if (_isOpeningFaceVerification) return;
+    final portraitBytes = nfcResult.portraitBytes;
+    if (portraitBytes == null || portraitBytes.isEmpty) {
+      setState(() {
+        _faceVerificationResult = null;
+        _faceVerificationError = nfcResult.availableDataGroups.contains('DG2')
+            ? 'Đã tìm thấy DG2 nhưng không đọc được ảnh. Hãy giữ CCCD sát '
+                  'iPhone trong suốt quá trình và thử lại.'
+            : 'Chip không có ảnh DG2 nên không thể so khớp khuôn mặt.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isOpeningFaceVerification = true;
+      _faceVerificationError = null;
+    });
+    try {
+      final result = await Navigator.of(context).push<FaceVerificationResult>(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) =>
+              LuxandFaceVerificationScreen(nfcPortraitBytes: portraitBytes),
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _faceVerificationResult = result;
+        _faceVerificationError = result == null
+            ? 'Chưa hoàn tất xác minh khuôn mặt.'
+            : null;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isOpeningFaceVerification = false);
+      }
+    }
   }
 
   Future<void> _captureIdentityDocument() async {
@@ -112,6 +167,8 @@ class _NfcHomeScreenState extends State<NfcHomeScreen> {
     _controller.reset();
     setState(() {
       _captureResult = result;
+      _faceVerificationResult = null;
+      _faceVerificationError = null;
       _documentNumberController.text = result.accessData.documentNumber;
       _dateOfBirth = result.accessData.dateOfBirth;
       _dateOfExpiry = result.accessData.dateOfExpiry;
@@ -156,6 +213,13 @@ class _NfcHomeScreenState extends State<NfcHomeScreen> {
                 if (state.result case final result?) ...[
                   const SizedBox(height: 20),
                   _ResultCard(result: result),
+                  const SizedBox(height: 20),
+                  _FaceVerificationCard(
+                    result: _faceVerificationResult,
+                    errorMessage: _faceVerificationError,
+                    isOpening: _isOpeningFaceVerification,
+                    onVerify: () => _verifyFace(result),
+                  ),
                 ],
               ],
             );
@@ -266,7 +330,7 @@ class _Header extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         const Text(
-          'Chụp hai mặt CCCD, đọc MRZ bằng OCR rồi mở chip theo chuẩn ICAO 9303. Toàn bộ xử lý ở trên thiết bị, không backend.',
+          'Chụp CCCD, đọc chip theo ICAO 9303 rồi dùng Luxand 8.3 so khớp khuôn mặt với ảnh DG2. Toàn bộ xử lý trên thiết bị.',
         ),
       ],
     );
@@ -546,19 +610,7 @@ class _ResultCard extends StatelessWidget {
             if (result.portraitBytes case final bytes?) ...[
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: Image.memory(
-                  bytes,
-                  height: 220,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) => const SizedBox(
-                    height: 96,
-                    child: Center(
-                      child: Text(
-                        'Đã đọc DG2 nhưng thiết bị không giải mã được ảnh.',
-                      ),
-                    ),
-                  ),
-                ),
+                child: _NfcPortraitImage(bytes: bytes),
               ),
               const SizedBox(height: 14),
             ],
@@ -587,6 +639,150 @@ class _ResultCard extends StatelessWidget {
             Text(
               'Lưu ý: “Đã đọc SOD” không đồng nghĩa đã xác minh chữ ký chip với CSCA quốc gia.',
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NfcPortraitImage extends StatefulWidget {
+  const _NfcPortraitImage({required this.bytes});
+
+  final Uint8List bytes;
+
+  @override
+  State<_NfcPortraitImage> createState() => _NfcPortraitImageState();
+}
+
+class _NfcPortraitImageState extends State<_NfcPortraitImage> {
+  late Future<Uint8List?> _decodedPortrait;
+
+  @override
+  void initState() {
+    super.initState();
+    _decodedPortrait = const NfcPortraitDecoder().decodeToPng(widget.bytes);
+  }
+
+  @override
+  void didUpdateWidget(_NfcPortraitImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.bytes, widget.bytes)) {
+      _decodedPortrait = const NfcPortraitDecoder().decodeToPng(widget.bytes);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List?>(
+      future: _decodedPortrait,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const SizedBox(
+            height: 220,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final bytes = snapshot.data;
+        if (bytes == null || bytes.isEmpty) {
+          return const SizedBox(
+            height: 96,
+            child: Center(
+              child: Text('Đã đọc DG2 nhưng thiết bị không giải mã được ảnh.'),
+            ),
+          );
+        }
+        return Image.memory(bytes, height: 220, fit: BoxFit.contain);
+      },
+    );
+  }
+}
+
+class _FaceVerificationCard extends StatelessWidget {
+  const _FaceVerificationCard({
+    required this.result,
+    required this.errorMessage,
+    required this.isOpening,
+    required this.onVerify,
+  });
+
+  final FaceVerificationResult? result;
+  final String? errorMessage;
+  final bool isOpening;
+  final VoidCallback onVerify;
+
+  @override
+  Widget build(BuildContext context) {
+    final verification = result;
+    return Card(
+      margin: EdgeInsets.zero,
+      color: verification?.isMatched == true
+          ? Colors.green.withValues(alpha: 0.12)
+          : null,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '4. So khớp khuôn mặt Luxand 8.3',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            if (verification != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.memory(
+                  verification.captureBytes,
+                  height: 220,
+                  fit: BoxFit.contain,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.verified_user_outlined, color: Colors.green),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Khuôn mặt khớp ảnh DG2 '
+                      '(match ${LuxandVerificationConfig.percent(verification.similarity)} '
+                      '/ ${LuxandVerificationConfig.percent(verification.threshold)}, '
+                      'liveness ${LuxandVerificationConfig.percent(verification.liveness)} '
+                      '/ ${LuxandVerificationConfig.percent(verification.livenessThreshold)}).',
+                    ),
+                  ),
+                ],
+              ),
+            ] else ...[
+              Text(
+                errorMessage ??
+                    'Sau khi NFC thành công, camera sẽ mở để kiểm tra người thật và so khớp với ảnh trên chip.',
+                style: TextStyle(
+                  color: errorMessage == null
+                      ? null
+                      : Theme.of(context).colorScheme.error,
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            FilledButton.tonalIcon(
+              key: const Key('start-face-verification-button'),
+              onPressed: isOpening ? null : onVerify,
+              icon: isOpening
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.face_retouching_natural),
+              label: Text(
+                isOpening
+                    ? 'Đang mở camera...'
+                    : verification == null
+                    ? 'Quét khuôn mặt'
+                    : 'Quét lại khuôn mặt',
+              ),
             ),
           ],
         ),
